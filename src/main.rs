@@ -299,6 +299,10 @@ fn main() -> Result<()> {
     } = info.as_concrete()?;
 
     println!("alright, setting up that user...");
+    println!("(this'll ask you for a password which'll be associated with your new account.");
+    println!("It will also ask for information like office & phone number; these are");
+    println!("part of old-school unix GECOS information -- feel free to be cute here");
+    println!("or provide blank answers. You can always change them later with chfn :-D)");
     Command::new("sudo")
         .arg("adduser")
         .arg(username)
