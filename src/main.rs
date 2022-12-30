@@ -12,8 +12,11 @@ use std::io::Write;
 use std::process::Command;
 use std::{process::Stdio, sync::LazyLock};
 
+/// key source chosing option SSH key type in the wizard
 enum KeySource {
+    /// from github
     GitHub,
+    /// pasted in directly
     Provided,
 }
 impl std::fmt::Display for KeySource {
@@ -25,21 +28,14 @@ impl std::fmt::Display for KeySource {
     }
 }
 
-static USERNAME_RE: LazyLock<Regex> = LazyLock::new(|| {
-    // DNS name restrictions + default linux username restrictions
-    Regex::new(r"^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$")
-        .wrap_err("couldn't construct username validation regex")
-        .suggestion("this isn't your fault (probably?) -- contact the admins")
-        .unwrap()
-});
-
+/// selection enum for the "is everything ok" selection at the end
+/// (borrows so that the options can show the current value)
 enum InfoType<'v> {
     Username(&'v str),
     SSHKey(&'v str),
     Email(&'v str),
     Ok,
 }
-
 impl<'v> std::fmt::Display for InfoType<'v> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -51,6 +47,16 @@ impl<'v> std::fmt::Display for InfoType<'v> {
     }
 }
 
+/// validates that usernames are dns labels & standard linux usernames
+static USERNAME_RE: LazyLock<Regex> = LazyLock::new(|| {
+    // DNS name restrictions + default linux username restrictions
+    Regex::new(r"^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$")
+        .wrap_err("couldn't construct username validation regex")
+        .suggestion("this isn't your fault (probably?) -- contact the admins")
+        .unwrap()
+});
+
+/// holds currently collection information during the collection process
 #[derive(Default, Debug)]
 struct UserInfo {
     username: Option<String>,
@@ -58,6 +64,7 @@ struct UserInfo {
     email: Option<String>,
 }
 
+/// represents the full set of information, borrowed from a [`UserInfo`]
 struct ConcreteInfo<'u> {
     username: &'u str,
     ssh_key: &'u str,
@@ -65,6 +72,7 @@ struct ConcreteInfo<'u> {
 }
 
 impl UserInfo {
+    /// prompt for the username, filling out this object
     fn get_username(&mut self) -> Result<()> {
         let new = Text::new("okie doke, what's your desired username?").
             with_help_message("this'll be your login, and also your site at `https://[you].{are,is}.profoundly.gay`").
@@ -97,6 +105,8 @@ impl UserInfo {
 
         Ok(())
     }
+
+    /// prompt for the ssh key, filling out this object
     fn get_ssh_key(&mut self) -> Result<()> {
         let Some(key_type) = Select::new(
             "awesome, now how do you want use to get your SSH key?",
@@ -154,6 +164,7 @@ impl UserInfo {
         Ok(())
     }
 
+    /// prompt for the email, filling out this object
     fn get_email(&mut self) -> Result<()> {
         let new = Text::new("cool, we'll also need your email, in case the admins need to get in touch:").
         with_validator(required!("sorry, but we need to be able to contact you in case of issues")).
@@ -170,6 +181,7 @@ impl UserInfo {
         Ok(())
     }
 
+    /// assert that all fields are filled, returning an error if not
     fn as_concrete(&self) -> Result<ConcreteInfo<'_>> {
         match &self {
             UserInfo {
@@ -191,7 +203,9 @@ impl UserInfo {
     }
 }
 
-fn run() -> Result<UserInfo> {
+/// runs the main collection phase
+fn collect_info() -> Result<UserInfo> {
+    // check that this is allowed
     Password::new("First off, what's the passphrase?").
         with_help_message("you got this via direct communication with one of the admins (press Ctrl-R to toggle visibility)").
         with_validator(|input: &str| {
@@ -209,11 +223,13 @@ fn run() -> Result<UserInfo> {
         without_confirmation().
         prompt()?;
 
+    // get info
     let mut info = UserInfo::default();
     info.get_username()?;
     info.get_email()?;
     info.get_ssh_key()?;
 
+    // ensure the user doesn't want to edit, and fully filled things out
     'ok_loop: loop {
         if info.username.is_none() {
             info.get_username()?;
@@ -233,6 +249,7 @@ fn run() -> Result<UserInfo> {
             ssh_key,
         } = info.as_concrete()?;
 
+        // check to make sure there's no edits to be done
         let next = Select::new(
             "alright, want to change anything?",
             vec![
@@ -253,6 +270,7 @@ fn run() -> Result<UserInfo> {
         }
     }
 
+    // confirm the user is not a jerk
     if !Confirm::new("I promise on a bucket full of kittens that I will be a chill, drama-free (as much as possible), and reasonable member of this shared server ✋")
         .with_default(true)
         .prompt()? {
@@ -269,7 +287,8 @@ fn main() -> Result<()> {
 
     color_eyre::install()?;
 
-    let info = match run() {
+    // collect the user's information
+    let info = match collect_info() {
         Ok(info) => info,
         // add some nice suggestions to errors
         Err(err) => match err.downcast::<inquire::error::InquireError>() {
@@ -292,6 +311,7 @@ fn main() -> Result<()> {
         },
     };
 
+    // actually save that information
     let ConcreteInfo {
         username,
         ssh_key,
