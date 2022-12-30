@@ -27,7 +27,7 @@ impl std::fmt::Display for KeySource {
 
 static USERNAME_RE: LazyLock<Regex> = LazyLock::new(|| {
     // DNS name restrictions + default linux username restrictions
-    Regex::new(r"^[a-z]([a-z0-9_]{0,30}[a-z0-9])?$")
+    Regex::new(r"^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$")
         .wrap_err("couldn't construct username validation regex")
         .suggestion("this isn't your fault (probably?) -- contact the admins")
         .unwrap()
