@@ -253,10 +253,10 @@ fn run() -> Result<UserInfo> {
         }
     }
 
-    if !Confirm::new("I swear on a bucket full of kittens that I'll be a reasonable member of this shared server ✋")
+    if !Confirm::new("I promise on a bucket full of kittens that I will be a chill, drama-free (as much as possible), and reasonable member of this shared server ✋")
         .with_default(true)
         .prompt()? {
-        Err(eyre!("sorry, you've gotta swear")).
+        Err(eyre!("sorry, you've gotta promise")).
             suggestion("maybe try saying yes next time?")?;
     }
 
