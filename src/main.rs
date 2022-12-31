@@ -8,9 +8,11 @@ use color_eyre::{
 use inquire::{required, Confirm};
 use inquire::{validator::Validation, Password, Select, Text};
 use regex::Regex;
-use std::io::Write;
+use std::{io::Write, cell::Cell, rc::Rc};
 use std::process::Command;
 use std::{process::Stdio, sync::LazyLock};
+
+mod tokens;
 
 /// key source chosing option SSH key type in the wizard
 enum KeySource {
@@ -62,6 +64,8 @@ struct UserInfo {
     username: Option<String>,
     ssh_key: Option<String>,
     email: Option<String>,
+    // must not be dropped till we're done
+    locked_token: Option<tokens::LockedToken>,
 }
 
 /// represents the full set of information, borrowed from a [`UserInfo`]
@@ -188,6 +192,7 @@ impl UserInfo {
                 ssh_key: Some(ssh_key),
                 email: Some(email),
                 username: Some(username),
+                ..
             } => Ok(ConcreteInfo {
                 username,
                 email,
@@ -205,18 +210,31 @@ impl UserInfo {
 
 /// runs the main collection phase
 fn collect_info() -> Result<UserInfo> {
+    let db = Rc::new(Cell::new(Some(tokens::Db::open().wrap_err("preparing to check signup tokens")?)));
+    let token: Rc<Cell<Option<tokens::LockedToken>>> = Rc::new(Cell::new(None));
+
     // check that this is allowed
+    let vdb = db.clone();
+    let vtoken = token.clone();
     Password::new("First off, what's the passphrase?").
         with_help_message("you got this via direct communication with one of the admins (press Ctrl-R to toggle visibility)").
-        with_validator(|input: &str| {
-            if std::fs::read_to_string("/etc/signup-tokens").
-                wrap_err("checking signup token")?.lines().any(|tok| tok == input) {
+        with_validator(move |input: &str| {
+            match vdb.take().expect("db should never be done except below").check_and_reserve(input)? {
+                tokens::TokenState::ValidAndReserved(new_token) => {
+                    vtoken.set(Some(new_token));
                     Ok(Validation::Valid)
-            } else {
-                // add a 5s sleep, just in case, to make this harder to fuzz
-                std::thread::sleep(std::time::Duration::new(5, 0));
-                Ok(Validation::Invalid("uhuh. yep. toooootally 🙄".into()))
+                },
+                tokens::TokenState::AlreadyReserved(new_db) => {
+                    vdb.set(Some(new_db));
+                    Ok(Validation::Invalid("that token is currently being used for signup -- are you trying twice at once?".into()))
+                },
+                tokens::TokenState::Invalid(new_db) => {
+                    vdb.set(Some(new_db));
+                    std::thread::sleep(std::time::Duration::new(5, 0));
+                    Ok(Validation::Invalid("uhuh. yep. toooootally 🙄".into()))
+                },
             }
+                // // add a 5s sleep, just in case, to make this harder to fuzz
         }).
         with_display_mode(inquire::PasswordDisplayMode::Masked).
         with_display_toggle_enabled().
@@ -277,6 +295,8 @@ fn collect_info() -> Result<UserInfo> {
         Err(eyre!("sorry, you've gotta promise")).
             suggestion("maybe try saying yes next time?")?;
     }
+
+    info.locked_token = token.take();
 
     Ok(info)
 }
@@ -361,6 +381,10 @@ fn main() -> Result<()> {
     .suggestion("contact the admins, this (probably?) isn't your fault")?;
 
     println!("All done, ssh to {username}@profoundly.gay to get started!");
+
+    info.locked_token.expect("you should have a token").consume().
+        wrap_err("while removing your token from the database").
+        suggestion("contact the admins, this (probably?) isn't your fault")?;
 
     Ok(())
 }
