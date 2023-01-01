@@ -6,8 +6,7 @@ You get given a token, which you can then use to create your accounts.
 
 ## TODO
 
-- make tokens single-use
-- a database or external thing for user emails instead of protected files
+- tests :-P
 
 ## Setup
 
